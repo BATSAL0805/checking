@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>생리주기 캘린더</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar">
+    <h1>🌙 생리주기 캘린더</h1>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main class="content">
+
+    <section class="card countdown-card">
+      <div class="countdown-main">
+        <span class="countdown-label">다음 생리 예정일까지</span>
+        <span id="countdownValue" class="countdown-value">데이터가 더 필요합니다</span>
+      </div>
+      <div class="countdown-sub">
+        <div>
+          <span class="sub-label">예정일</span>
+          <span id="nextPeriodDate" class="sub-value">-</span>
+        </div>
+        <div>
+          <span class="sub-label">배란 예정일</span>
+          <span id="ovulationDate" class="sub-value">-</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card calendar-card">
+      <div class="calendar-header">
+        <button id="prevMonth" class="nav-btn" aria-label="이전 달">‹</button>
+        <h2 id="calendarTitle">-</h2>
+        <button id="nextMonth" class="nav-btn" aria-label="다음 달">›</button>
+      </div>
+      <div class="weekday-row">
+        <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
+      </div>
+      <div id="calendarGrid" class="calendar-grid"></div>
+      <div class="legend">
+        <span class="legend-item"><i class="dot period"></i>기록된 생리 기간</span>
+        <span class="legend-item"><i class="dot predicted-period"></i>예상 생리일</span>
+        <span class="legend-item"><i class="dot predicted-ovulation"></i>예상 배란일</span>
+      </div>
+    </section>
+
+    <section class="card stats-card">
+      <h2>통계</h2>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <span class="stat-value" id="avgCycleLength">-</span>
+          <span class="stat-label">평균 주기 (일)</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="avgPeriodLength">-</span>
+          <span class="stat-label">평균 생리 기간 (일)</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="recordCount">0</span>
+          <span class="stat-label">기록 횟수</span>
+        </div>
+      </div>
+    </section>
+
+    <button id="addRecordBtn" class="fab">+ 기록 추가</button>
+
+  </main>
+
+  <!-- 날짜 상세 / 기록 보기 모달 -->
+  <div id="detailModal" class="modal-overlay" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="detailModalTitle">상세 정보</h3>
+        <button class="close-btn" data-close="detailModal">✕</button>
+      </div>
+      <div id="detailModalBody" class="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- 기록 입력/수정 모달 -->
+  <div id="formModal" class="modal-overlay" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="formModalTitle">기록 추가</h3>
+        <button class="close-btn" data-close="formModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="recordForm">
+          <input type="hidden" id="recordId">
+
+          <label class="field">
+            <span>시작일</span>
+            <input type="date" id="startDate" required>
+          </label>
+
+          <label class="field">
+            <span>종료일 <em>(선택, 진행 중이면 비워두세요)</em></span>
+            <input type="date" id="endDate">
+          </label>
+
+          <div class="field">
+            <span>증상 / 컨디션</span>
+            <div id="symptomTags" class="tag-group"></div>
+          </div>
+
+          <label class="field">
+            <span>메모</span>
+            <textarea id="memo" rows="3" placeholder="자유롭게 메모를 남겨보세요"></textarea>
+          </label>
+
+          <div class="form-actions">
+            <button type="button" id="deleteRecordBtn" class="btn danger" hidden>삭제</button>
+            <button type="submit" class="btn primary">저장</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
