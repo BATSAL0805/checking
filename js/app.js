@@ -2,17 +2,26 @@
   "use strict";
 
   var STORAGE_KEY = "periodTracker.records.v1";
+  var PROFILE_KEY = "periodTracker.profile.v1";
 
   var SYMPTOM_TAGS = [
     "두통", "복통", "요통", "부종", "기분 변화",
     "피로감", "유방 압통", "메스꺼움", "식욕 변화", "여드름"
   ];
 
-  var MIN_RECORDS_FOR_PREDICTION = 2;
   var MAX_RECORDS_FOR_PREDICTION = 6;
   var DEFAULT_PERIOD_LENGTH = 5;
   var OVULATION_OFFSET_DAYS = 14;
   var BANNER_THRESHOLD_DAYS = 3;
+
+  // 나이대별 평균 생리 주기(일) - 기록이 1건뿐일 때 추정치로 사용
+  function defaultCycleLengthForAge(age) {
+    if (!age && age !== 0) return 28;
+    if (age < 20) return 30;
+    if (age < 35) return 28;
+    if (age < 45) return 27;
+    return 25;
+  }
 
   // ---------- date helpers (local time, no timezone drift) ----------
 
@@ -80,10 +89,34 @@
     }
   }
 
+  function loadProfile() {
+    try {
+      var raw = localStorage.getItem(PROFILE_KEY);
+      if (!raw) return { age: null };
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return { age: null };
+      return { age: typeof parsed.age === "number" ? parsed.age : null };
+    } catch (e) {
+      console.error("프로필을 불러오지 못했습니다.", e);
+      return { age: null };
+    }
+  }
+
+  function saveProfile(profile) {
+    try {
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+      return true;
+    } catch (e) {
+      console.error("프로필을 저장하지 못했습니다.", e);
+      return false;
+    }
+  }
+
   // ---------- state ----------
 
   var state = {
     records: loadRecords(),
+    profile: loadProfile(),
     calendarMonth: new Date(todayDate().getFullYear(), todayDate().getMonth(), 1),
     selectedTags: []
   };
@@ -96,12 +129,35 @@
 
   // ---------- prediction ----------
 
-  function computePrediction(records) {
-    if (records.length < MIN_RECORDS_FOR_PREDICTION) {
+  function computePrediction(records, profile) {
+    if (records.length === 0) {
       return { available: false };
     }
 
     var sorted = sortedByStart(records);
+    var lastRecord = sorted[sorted.length - 1];
+    var lastStart = parseDate(lastRecord.startDate);
+
+    // 기록이 1건뿐이면 나이대별 평균 주기로 추정
+    if (records.length === 1) {
+      var ageCycleLength = defaultCycleLengthForAge(profile ? profile.age : null);
+      var ageNextStart = addDays(lastStart, ageCycleLength);
+      var agePeriodLen = lastRecord.endDate
+        ? diffDays(parseDate(lastRecord.startDate), parseDate(lastRecord.endDate)) + 1
+        : DEFAULT_PERIOD_LENGTH;
+      var ageOvulation = addDays(ageNextStart, -OVULATION_OFFSET_DAYS);
+
+      return {
+        available: true,
+        isEstimate: true,
+        avgCycleLength: ageCycleLength,
+        avgPeriodLength: lastRecord.endDate ? agePeriodLen : null,
+        nextPeriodStart: ageNextStart,
+        nextPeriodEnd: addDays(ageNextStart, agePeriodLen - 1),
+        ovulationDate: ageOvulation
+      };
+    }
+
     var recent = sorted.slice(Math.max(0, sorted.length - MAX_RECORDS_FOR_PREDICTION));
 
     var cycleLengths = [];
@@ -127,8 +183,6 @@
       ? periodLengths.reduce(function (a, b) { return a + b; }, 0) / periodLengths.length
       : null;
 
-    var lastRecord = sorted[sorted.length - 1];
-    var lastStart = parseDate(lastRecord.startDate);
     var roundedCycle = Math.round(avgCycleLength);
     var nextPeriodStart = addDays(lastStart, roundedCycle);
     var ovulationDate = addDays(nextPeriodStart, -OVULATION_OFFSET_DAYS);
@@ -137,11 +191,13 @@
 
     return {
       available: true,
+      isEstimate: false,
       avgCycleLength: avgCycleLength,
       avgPeriodLength: avgPeriodLength,
       nextPeriodStart: nextPeriodStart,
       nextPeriodEnd: nextPeriodEnd,
-      ovulationDate: ovulationDate
+      ovulationDate: ovulationDate,
+      basedOnCount: recent.length
     };
   }
 
@@ -179,17 +235,24 @@
     var nextEl = document.getElementById("nextPeriodDate");
     var ovulEl = document.getElementById("ovulationDate");
     var banner = document.getElementById("banner");
+    var basisEl = document.getElementById("predictionBasis");
 
     if (!prediction.available) {
       valueEl.textContent = "데이터가 더 필요합니다";
       nextEl.textContent = "-";
       ovulEl.textContent = "-";
       banner.hidden = true;
+      basisEl.hidden = true;
       return;
     }
 
     nextEl.textContent = formatDate(prediction.nextPeriodStart);
     ovulEl.textContent = formatDate(prediction.ovulationDate);
+
+    basisEl.hidden = false;
+    basisEl.textContent = prediction.isEstimate
+      ? "* 기록 1건 + 나이대 평균(" + prediction.avgCycleLength + "일) 기준 추정치예요. 기록이 쌓이면 실제 평균으로 자동 보정됩니다."
+      : "최근 " + prediction.basedOnCount + "회 기록의 평균 주기(" + Math.round(prediction.avgCycleLength) + "일) 기준이에요.";
 
     var dDay = diffDays(todayDate(), prediction.nextPeriodStart);
 
@@ -215,11 +278,15 @@
 
   function renderStats(prediction) {
     var cycleEl = document.getElementById("avgCycleLength");
+    var cycleLabelEl = document.getElementById("avgCycleLabel");
     var periodEl = document.getElementById("avgPeriodLength");
     var countEl = document.getElementById("recordCount");
 
     countEl.textContent = String(state.records.length);
     cycleEl.textContent = prediction.available ? Math.round(prediction.avgCycleLength) : "-";
+    cycleLabelEl.textContent = prediction.available && prediction.isEstimate
+      ? "추정 주기 (일)"
+      : "평균 주기 (일)";
     periodEl.textContent = (prediction.available && prediction.avgPeriodLength)
       ? Math.round(prediction.avgPeriodLength)
       : "-";
@@ -235,7 +302,7 @@
 
     titleEl.textContent = year + "년 " + (month + 1) + "월";
 
-    var prediction = computePrediction(state.records);
+    var prediction = computePrediction(state.records, state.profile);
     var todayS = todayStr();
 
     var firstDay = new Date(year, month, 1);
@@ -461,6 +528,17 @@
   // ---------- init ----------
 
   function init() {
+    var profileAgeEl = document.getElementById("profileAge");
+    if (state.profile.age != null) {
+      profileAgeEl.value = state.profile.age;
+    }
+    profileAgeEl.addEventListener("change", function () {
+      var val = parseInt(profileAgeEl.value, 10);
+      state.profile.age = isNaN(val) ? null : val;
+      saveProfile(state.profile);
+      renderCalendar();
+    });
+
     document.getElementById("prevMonth").addEventListener("click", function () {
       state.calendarMonth = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth() - 1, 1);
       renderCalendar();

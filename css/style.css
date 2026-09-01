@@ -83,9 +83,49 @@ body {
   color: var(--accent-deep);
 }
 
+/* profile */
+.profile-card {
+  padding: 16px 18px;
+}
+
+.profile-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.profile-field input[type="number"] {
+  width: 88px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text);
+  text-align: right;
+}
+
+.profile-hint {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-soft);
+}
+
 /* countdown */
 .countdown-card {
   text-align: center;
+}
+
+.prediction-basis {
+  margin: 10px 0 0;
+  font-size: 0.72rem;
+  color: var(--text-soft);
 }
 
 .countdown-label {

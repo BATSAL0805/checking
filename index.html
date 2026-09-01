@@ -17,6 +17,14 @@
 
   <main class="content">
 
+    <section class="card profile-card">
+      <label class="profile-field">
+        <span>여자친구 나이</span>
+        <input type="number" id="profileAge" min="10" max="60" placeholder="예: 27">
+      </label>
+      <p class="profile-hint">나이대별 평균 주기를 기준으로, 기록이 1건만 있어도 예상 주기를 추정해드려요. 기록이 쌓일수록 실제 데이터로 자동 보정됩니다.</p>
+    </section>
+
     <section class="card countdown-card">
       <div class="countdown-main">
         <span class="countdown-label">다음 생리 예정일까지</span>
@@ -32,6 +40,7 @@
           <span id="ovulationDate" class="sub-value">-</span>
         </div>
       </div>
+      <p id="predictionBasis" class="prediction-basis" hidden></p>
     </section>
 
     <section class="card calendar-card">
@@ -56,7 +65,7 @@
       <div class="stats-grid">
         <div class="stat-box">
           <span class="stat-value" id="avgCycleLength">-</span>
-          <span class="stat-label">평균 주기 (일)</span>
+          <span class="stat-label" id="avgCycleLabel">평균 주기 (일)</span>
         </div>
         <div class="stat-box">
           <span class="stat-value" id="avgPeriodLength">-</span>
