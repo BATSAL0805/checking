@@ -236,6 +236,7 @@
     var ovulEl = document.getElementById("ovulationDate");
     var banner = document.getElementById("banner");
     var basisEl = document.getElementById("predictionBasis");
+    var calendarBtn = document.getElementById("addToCalendarBtn");
 
     if (!prediction.available) {
       valueEl.textContent = "데이터가 더 필요합니다";
@@ -243,11 +244,13 @@
       ovulEl.textContent = "-";
       banner.hidden = true;
       basisEl.hidden = true;
+      calendarBtn.hidden = true;
       return;
     }
 
     nextEl.textContent = formatDate(prediction.nextPeriodStart);
     ovulEl.textContent = formatDate(prediction.ovulationDate);
+    calendarBtn.hidden = false;
 
     basisEl.hidden = false;
     basisEl.textContent = prediction.isEstimate
@@ -269,9 +272,126 @@
       banner.textContent = dDay === 0
         ? "🌸 오늘 생리 예정일이에요"
         : "🌸 다음 생리 예정일까지 D-" + dDay;
+      maybeShowNativeNotification(dDay);
     } else {
       banner.hidden = true;
     }
+  }
+
+  // ---------- reminders: browser notification ----------
+
+  var NOTIFY_LAST_KEY = "periodTracker.lastNotified.v1";
+
+  function updateNotifyButtonLabel() {
+    var btn = document.getElementById("enableNotifyBtn");
+    if (!("Notification" in window)) {
+      btn.textContent = "🔔 이 브라우저는 알림 미지원";
+      btn.disabled = true;
+      return;
+    }
+    if (Notification.permission === "granted") {
+      btn.textContent = "🔔 브라우저 알림 켜짐";
+      btn.classList.add("active");
+    } else {
+      btn.textContent = "🔔 브라우저 알림 켜기";
+      btn.classList.remove("active");
+    }
+  }
+
+  function requestNotifyPermission() {
+    if (!("Notification" in window)) {
+      alert("이 브라우저는 알림을 지원하지 않아요.");
+      return;
+    }
+    Notification.requestPermission().then(function () {
+      updateNotifyButtonLabel();
+    });
+  }
+
+  function maybeShowNativeNotification(dDay) {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    var last = null;
+    try {
+      last = localStorage.getItem(NOTIFY_LAST_KEY);
+    } catch (e) {
+      // 알림 발송 여부 기록 실패는 무시하고 계속 진행
+    }
+    var today = todayStr();
+    if (last === today) return;
+
+    var body = dDay === 0
+      ? "오늘이 생리 예정일이에요."
+      : "다음 생리 예정일까지 D-" + dDay + " 남았어요.";
+    try {
+      new Notification("생리주기 캘린더", { body: body });
+      localStorage.setItem(NOTIFY_LAST_KEY, today);
+    } catch (e) {
+      console.error("알림을 표시하지 못했습니다.", e);
+    }
+  }
+
+  // ---------- reminders: calendar (.ics) export ----------
+
+  function toICSDate(date) {
+    return date.getFullYear() + pad2(date.getMonth() + 1) + pad2(date.getDate());
+  }
+
+  function buildICS(prediction) {
+    var lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//PeriodTracker//KO",
+      "CALSCALE:GREGORIAN"
+    ];
+
+    var stamp = toICSDate(todayDate()) + "T000000Z";
+
+    lines.push(
+      "BEGIN:VEVENT",
+      "UID:" + uid() + "@period-tracker",
+      "DTSTAMP:" + stamp,
+      "DTSTART;VALUE=DATE:" + toICSDate(prediction.nextPeriodStart),
+      "DTEND;VALUE=DATE:" + toICSDate(addDays(prediction.nextPeriodStart, 1)),
+      "SUMMARY:생리 예정일",
+      "DESCRIPTION:배란 예정일 " + formatDate(prediction.ovulationDate),
+      "BEGIN:VALARM",
+      "ACTION:DISPLAY",
+      "DESCRIPTION:생리 예정일이 " + BANNER_THRESHOLD_DAYS + "일 남았어요",
+      "TRIGGER:-P" + BANNER_THRESHOLD_DAYS + "D",
+      "END:VALARM",
+      "END:VEVENT"
+    );
+
+    lines.push(
+      "BEGIN:VEVENT",
+      "UID:" + uid() + "@period-tracker",
+      "DTSTAMP:" + stamp,
+      "DTSTART;VALUE=DATE:" + toICSDate(prediction.ovulationDate),
+      "DTEND;VALUE=DATE:" + toICSDate(addDays(prediction.ovulationDate, 1)),
+      "SUMMARY:배란 예정일",
+      "BEGIN:VALARM",
+      "ACTION:DISPLAY",
+      "DESCRIPTION:배란 예정일이 하루 남았어요",
+      "TRIGGER:-P1D",
+      "END:VALARM",
+      "END:VEVENT"
+    );
+
+    lines.push("END:VCALENDAR");
+    return lines.join("\r\n");
+  }
+
+  function downloadICS(prediction) {
+    var ics = buildICS(prediction);
+    // data: URI + text/calendar MIME: 아이폰/안드로이드에서는 캘린더 앱의
+    // "일정 추가" 화면이 바로 뜨고, 데스크톱 브라우저에서는 .ics 파일로 저장된다.
+    var dataUri = "data:text/calendar;charset=utf-8," + encodeURIComponent(ics);
+    var a = document.createElement("a");
+    a.href = dataUri;
+    a.setAttribute("download", "생리예정일-" + formatDate(prediction.nextPeriodStart) + ".ics");
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 
   // ---------- rendering: stats ----------
@@ -528,6 +648,13 @@
   // ---------- init ----------
 
   function init() {
+    updateNotifyButtonLabel();
+    document.getElementById("enableNotifyBtn").addEventListener("click", requestNotifyPermission);
+    document.getElementById("addToCalendarBtn").addEventListener("click", function () {
+      var prediction = computePrediction(state.records, state.profile);
+      if (prediction.available) downloadICS(prediction);
+    });
+
     var profileAgeEl = document.getElementById("profileAge");
     if (state.profile.age != null) {
       profileAgeEl.value = state.profile.age;
