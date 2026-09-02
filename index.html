@@ -17,12 +17,21 @@
 
   <main class="content">
 
-    <section class="card profile-card">
-      <label class="profile-field">
-        <span>여자친구 나이</span>
-        <input type="number" id="profileAge" min="10" max="60" placeholder="예: 27">
-      </label>
-      <p class="profile-hint">나이대별 평균 주기를 기준으로, 기록이 1건만 있어도 예상 주기를 추정해드려요. 기록이 쌓일수록 실제 데이터로 자동 보정됩니다.</p>
+    <section class="card calendar-card">
+      <div class="calendar-header">
+        <button id="prevMonth" class="nav-btn" aria-label="이전 달">‹</button>
+        <h2 id="calendarTitle">-</h2>
+        <button id="nextMonth" class="nav-btn" aria-label="다음 달">›</button>
+      </div>
+      <div class="weekday-row">
+        <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
+      </div>
+      <div id="calendarGrid" class="calendar-grid"></div>
+      <div class="legend">
+        <span class="legend-item"><i class="dot period"></i>기록된 생리 기간</span>
+        <span class="legend-item"><i class="dot predicted-period"></i>예상 생리일</span>
+        <span class="legend-item"><i class="dot predicted-ovulation"></i>예상 배란일</span>
+      </div>
     </section>
 
     <section class="card countdown-card">
@@ -47,22 +56,19 @@
       </div>
     </section>
 
-    <section class="card calendar-card">
-      <div class="calendar-header">
-        <button id="prevMonth" class="nav-btn" aria-label="이전 달">‹</button>
-        <h2 id="calendarTitle">-</h2>
-        <button id="nextMonth" class="nav-btn" aria-label="다음 달">›</button>
+    <details class="card profile-card">
+      <summary class="profile-summary">
+        <span class="profile-summary-title">👤 여자친구 정보</span>
+        <span id="profileSummaryValue" class="profile-summary-value">나이 미입력</span>
+      </summary>
+      <div class="profile-body">
+        <label class="profile-field">
+          <span>여자친구 나이</span>
+          <input type="number" id="profileAge" min="10" max="60" placeholder="예: 27">
+        </label>
+        <p class="profile-hint">나이대별 평균 주기를 기준으로, 기록이 1건만 있어도 예상 주기를 추정해드려요. 기록이 쌓일수록 실제 데이터로 자동 보정됩니다.</p>
       </div>
-      <div class="weekday-row">
-        <span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span>
-      </div>
-      <div id="calendarGrid" class="calendar-grid"></div>
-      <div class="legend">
-        <span class="legend-item"><i class="dot period"></i>기록된 생리 기간</span>
-        <span class="legend-item"><i class="dot predicted-period"></i>예상 생리일</span>
-        <span class="legend-item"><i class="dot predicted-ovulation"></i>예상 배란일</span>
-      </div>
-    </section>
+    </details>
 
     <section class="card stats-card">
       <h2>통계</h2>
@@ -80,6 +86,8 @@
           <span class="stat-label">기록 횟수</span>
         </div>
       </div>
+      <div id="cycleChart" class="cycle-chart" hidden></div>
+      <p id="cycleChartEmpty" class="cycle-chart-empty">기록이 2건 이상 쌓이면 최근 주기 변화를 그래프로 보여드려요.</p>
     </section>
 
     <button id="addRecordBtn" class="fab">+ 기록 추가</button>

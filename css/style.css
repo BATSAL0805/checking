@@ -83,9 +83,58 @@ body {
   color: var(--accent-deep);
 }
 
-/* profile */
+/* profile (collapsible) */
 .profile-card {
-  padding: 16px 18px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.profile-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 18px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+}
+
+.profile-summary::-webkit-details-marker {
+  display: none;
+}
+
+.profile-summary::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid var(--text-soft);
+  border-bottom: 1.5px solid var(--text-soft);
+  transform: rotate(45deg);
+  transition: transform 0.2s ease;
+  margin-left: auto;
+}
+
+.profile-card[open] .profile-summary::after {
+  transform: rotate(-135deg);
+}
+
+.profile-summary-title {
+  flex-shrink: 0;
+}
+
+.profile-summary-value {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-soft);
+  margin-right: 4px;
+}
+
+.profile-body {
+  padding: 0 18px 16px;
+  animation: fadeIn 0.2s ease;
 }
 
 .profile-field {
@@ -145,6 +194,11 @@ body {
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.btn-outline:active {
+  transform: scale(0.95);
 }
 
 .btn-outline.active {
@@ -214,6 +268,11 @@ body {
   font-size: 1.1rem;
   cursor: pointer;
   line-height: 1;
+  transition: transform 0.1s ease;
+}
+
+.nav-btn:active {
+  transform: scale(0.88);
 }
 
 .weekday-row {
@@ -243,15 +302,25 @@ body {
   color: var(--text);
   background: transparent;
   border: 1px solid transparent;
+  transition: transform 0.1s ease, box-shadow 0.15s ease;
 }
 
 .day-cell.empty {
   cursor: default;
 }
 
+.day-cell:not(.empty):active {
+  transform: scale(0.9);
+}
+
 .day-cell.today {
-  border: 1px solid var(--accent-deep);
-  font-weight: 700;
+  border: 1.5px solid var(--accent-deep);
+  font-weight: 800;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.day-cell.selected {
+  box-shadow: 0 0 0 2px var(--accent-deep);
 }
 
 .day-cell.period {
@@ -345,6 +414,65 @@ body {
   margin-top: 2px;
 }
 
+/* cycle chart */
+.cycle-chart {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  height: 90px;
+  margin-top: 18px;
+  padding-top: 6px;
+}
+
+.cycle-chart[hidden] {
+  display: none;
+}
+
+.cycle-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 4px;
+}
+
+.cycle-bar-value {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--accent-deep);
+}
+
+.cycle-bar {
+  width: 60%;
+  min-width: 14px;
+  border-radius: 6px 6px 3px 3px;
+  background: linear-gradient(180deg, var(--accent), var(--accent-deep));
+  transition: height 0.3s ease;
+}
+
+.cycle-bar-col.is-latest .cycle-bar {
+  background: linear-gradient(180deg, var(--predicted), var(--predicted) 0%, var(--accent-deep) 120%);
+}
+
+.cycle-bar-label {
+  font-size: 0.65rem;
+  color: var(--text-soft);
+}
+
+.cycle-chart-empty {
+  margin: 14px 0 0;
+  font-size: 0.75rem;
+  color: var(--text-soft);
+  text-align: center;
+}
+
+.cycle-chart-empty[hidden] {
+  display: none;
+}
+
 /* fab */
 .fab {
   position: sticky;
@@ -375,6 +503,12 @@ body {
   align-items: flex-end;
   justify-content: center;
   z-index: 100;
+  animation: overlayFadeIn 0.2s ease;
+}
+
+@keyframes overlayFadeIn {
+  from { background-color: rgba(63, 50, 56, 0); }
+  to { background-color: rgba(63, 50, 56, 0.45); }
 }
 
 .modal-overlay[hidden] {
@@ -464,6 +598,11 @@ body {
   font-size: 0.82rem;
   cursor: pointer;
   user-select: none;
+  transition: transform 0.1s ease;
+}
+
+.tag-chip:active {
+  transform: scale(0.94);
 }
 
 .tag-chip.selected {
@@ -487,6 +626,11 @@ body {
   font-size: 0.92rem;
   font-weight: 700;
   cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.btn:active {
+  transform: scale(0.97);
 }
 
 .btn.primary {

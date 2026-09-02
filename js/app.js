@@ -112,6 +112,11 @@
     }
   }
 
+  function updateProfileSummary() {
+    var el = document.getElementById("profileSummaryValue");
+    el.textContent = state.profile.age != null ? "나이 " + state.profile.age + "세" : "나이 미입력";
+  }
+
   // ---------- state ----------
 
   var state = {
@@ -120,6 +125,8 @@
     calendarMonth: new Date(todayDate().getFullYear(), todayDate().getMonth(), 1),
     selectedTags: []
   };
+
+  var selectedCellEl = null;
 
   function sortedByStart(records) {
     return records.slice().sort(function (a, b) {
@@ -412,6 +419,58 @@
       : "-";
   }
 
+  // ---------- rendering: cycle chart ----------
+
+  function formatShortDate(dateStr) {
+    var parts = dateStr.split("-");
+    return Number(parts[1]) + "/" + Number(parts[2]);
+  }
+
+  function getRecentCycleLengths(records) {
+    if (records.length < 2) return [];
+    var sorted = sortedByStart(records);
+    var recent = sorted.slice(Math.max(0, sorted.length - MAX_RECORDS_FOR_PREDICTION));
+    var result = [];
+    for (var i = 1; i < recent.length; i++) {
+      var length = diffDays(parseDate(recent[i - 1].startDate), parseDate(recent[i].startDate));
+      if (length > 0) {
+        result.push({ length: length, label: formatShortDate(recent[i].startDate) });
+      }
+    }
+    return result;
+  }
+
+  function renderCycleChart(records) {
+    var chartEl = document.getElementById("cycleChart");
+    var emptyEl = document.getElementById("cycleChartEmpty");
+    var data = getRecentCycleLengths(records);
+
+    if (data.length === 0) {
+      chartEl.hidden = true;
+      emptyEl.hidden = false;
+      chartEl.innerHTML = "";
+      return;
+    }
+
+    emptyEl.hidden = true;
+    chartEl.hidden = false;
+
+    var lengths = data.map(function (d) { return d.length; });
+    var min = Math.min.apply(null, lengths);
+    var max = Math.max.apply(null, lengths);
+    var range = max - min;
+
+    chartEl.innerHTML = data.map(function (d, i) {
+      var heightPct = range === 0 ? 60 : 20 + ((d.length - min) / range) * 80;
+      var isLatest = i === data.length - 1;
+      return '<div class="cycle-bar-col' + (isLatest ? " is-latest" : "") + '">' +
+        '<span class="cycle-bar-value">' + d.length + '</span>' +
+        '<div class="cycle-bar" style="height:' + heightPct + '%"></div>' +
+        '<span class="cycle-bar-label">' + d.label + '</span>' +
+        '</div>';
+    }).join("");
+  }
+
   // ---------- rendering: calendar ----------
 
   function renderCalendar() {
@@ -458,15 +517,20 @@
     }
 
     gridEl.innerHTML = html;
+    selectedCellEl = null;
 
     Array.prototype.forEach.call(gridEl.querySelectorAll(".day-cell:not(.empty)"), function (cell) {
       cell.addEventListener("click", function () {
+        if (selectedCellEl) selectedCellEl.classList.remove("selected");
+        cell.classList.add("selected");
+        selectedCellEl = cell;
         onDateClick(cell.getAttribute("data-date"));
       });
     });
 
     renderCountdown(prediction);
     renderStats(prediction);
+    renderCycleChart(state.records);
   }
 
   // ---------- date click -> detail or new record ----------
@@ -643,6 +707,10 @@
 
   function closeModal(id) {
     document.getElementById(id).hidden = true;
+    if (selectedCellEl) {
+      selectedCellEl.classList.remove("selected");
+      selectedCellEl = null;
+    }
   }
 
   // ---------- init ----------
@@ -659,10 +727,12 @@
     if (state.profile.age != null) {
       profileAgeEl.value = state.profile.age;
     }
+    updateProfileSummary();
     profileAgeEl.addEventListener("change", function () {
       var val = parseInt(profileAgeEl.value, 10);
       state.profile.age = isNaN(val) ? null : val;
       saveProfile(state.profile);
+      updateProfileSummary();
       renderCalendar();
     });
 
@@ -691,7 +761,7 @@
 
     Array.prototype.forEach.call(document.querySelectorAll(".modal-overlay"), function (overlay) {
       overlay.addEventListener("click", function (e) {
-        if (e.target === overlay) overlay.hidden = true;
+        if (e.target === overlay) closeModal(overlay.id);
       });
     });
 
