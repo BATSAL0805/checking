@@ -13,6 +13,7 @@
   var DEFAULT_PERIOD_LENGTH = 5;
   var OVULATION_OFFSET_DAYS = 14;
   var BANNER_THRESHOLD_DAYS = 3;
+  var ESTIMATED_END_OFFSET_DAYS = 7;
 
   // 나이대별 평균 생리 주기(일) - 기록이 1건뿐일 때 추정치로 사용
   function defaultCycleLengthForAge(age) {
@@ -134,6 +135,22 @@
     });
   }
 
+  // 실제 종료일이 없을 때 항상 같은 값(시작일 + 7일)을 돌려주는 순수 함수라,
+  // 새로고침해도 매번 동일하게 계산되어 저장 여부와 무관하게 안정적이다.
+  // (예전 데이터에 estimatedEndDate 필드가 없어도 이 폴백으로 그대로 동작한다.)
+  function getEstimatedEndDate(record) {
+    if (record.estimatedEndDate) return record.estimatedEndDate;
+    return formatDate(addDays(parseDate(record.startDate), ESTIMATED_END_OFFSET_DAYS));
+  }
+
+  // 실제 종료일이 있으면 그것을 우선 사용하고, 없으면 종료 예상일을 사용한다.
+  function getEffectiveEnd(record) {
+    if (record.endDate) {
+      return { date: record.endDate, isEstimate: false };
+    }
+    return { date: getEstimatedEndDate(record), isEstimate: true };
+  }
+
   // ---------- prediction ----------
 
   function computePrediction(records, profile) {
@@ -214,12 +231,9 @@
     var found = null;
     state.records.forEach(function (r) {
       if (dateStr < r.startDate) return;
-      if (r.endDate) {
-        if (dateStr <= r.endDate) found = r;
-      } else {
-        // ongoing period: covers startDate..today
-        if (dateStr <= todayStr()) found = r;
-      }
+      // 실제 종료일이 있으면 그 날짜까지, 없으면 종료 예상일(시작일+7일)까지로
+      // 고정된다 - 오늘 날짜가 얼마나 지났든 임의로 연장하지 않는다.
+      if (dateStr <= getEffectiveEnd(r).date) found = r;
     });
     return found;
   }
@@ -503,9 +517,13 @@
       if (dateStr === todayS) classes.push("today");
 
       if (record) {
+        var endInfo = getEffectiveEnd(record);
         classes.push("period");
         if (dateStr === record.startDate) classes.push("period-start");
-        if (record.endDate && dateStr === record.endDate) classes.push("period-end");
+        if (dateStr === endInfo.date) {
+          classes.push("period-end");
+          if (endInfo.isEstimate) classes.push("period-estimated-end");
+        }
         if (record.memo || (record.symptoms && record.symptoms.length)) classes.push("has-note");
       } else if (isPredictedPeriodDate(dateStr, prediction)) {
         classes.push("predicted-period");
@@ -552,12 +570,13 @@
 
     titleEl.textContent = "생리 기록";
 
-    var duration = record.endDate
-      ? diffDays(parseDate(record.startDate), parseDate(record.endDate)) + 1
-      : null;
+    var endInfo = getEffectiveEnd(record);
+    var duration = diffDays(parseDate(record.startDate), parseDate(endInfo.date)) + 1;
+    var endLabel = endInfo.isEstimate ? endInfo.date + " (예상)" : endInfo.date;
 
-    var html = '<div class="detail-dates">' + record.startDate + " ~ " + (record.endDate || "진행 중") + "</div>";
-    html += '<div class="detail-duration">' + (duration ? duration + "일간" : "종료일 미입력") + "</div>";
+    var html = '<div class="detail-dates">' + record.startDate + " ~ " + endLabel + "</div>";
+    html += '<div class="detail-duration">' + duration + "일간"
+      + (endInfo.isEstimate ? " · 종료일 미입력, 예상치예요" : "") + "</div>";
 
     if (record.symptoms && record.symptoms.length) {
       html += '<div class="detail-tags">';
@@ -662,6 +681,10 @@
       return;
     }
 
+    // 실제 종료일을 입력하지 않았으면 시작일 + 7일을 종료 예상일로 계산해 저장한다.
+    // 실제 종료일이 있으면 종료 예상일은 필요 없으므로 비워둔다 (실제 값이 항상 우선).
+    var estimatedEndDate = endDate ? null : formatDate(addDays(parseDate(startDate), ESTIMATED_END_OFFSET_DAYS));
+
     if (id) {
       var idx = state.records.findIndex(function (r) { return r.id === id; });
       if (idx !== -1) {
@@ -669,6 +692,7 @@
           id: id,
           startDate: startDate,
           endDate: endDate || null,
+          estimatedEndDate: estimatedEndDate,
           symptoms: state.selectedTags.slice(),
           memo: memo
         };
@@ -678,6 +702,7 @@
         id: uid(),
         startDate: startDate,
         endDate: endDate || null,
+        estimatedEndDate: estimatedEndDate,
         symptoms: state.selectedTags.slice(),
         memo: memo
       });

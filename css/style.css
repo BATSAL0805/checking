@@ -337,6 +337,10 @@ body {
   border-radius: 4px 10px 10px 4px;
 }
 
+.day-cell.period-estimated-end {
+  border: 1.5px dashed rgba(255, 255, 255, 0.85);
+}
+
 .day-cell.predicted-period {
   background: var(--predicted-soft);
   color: var(--accent-deep);
@@ -383,6 +387,7 @@ body {
 }
 
 .dot.period { background: var(--accent); }
+.dot.period-estimated-end { background: var(--accent); border: 1.5px dashed rgba(255, 255, 255, 0.85); }
 .dot.predicted-period { background: var(--predicted-soft); border: 1.5px dashed var(--predicted); }
 .dot.predicted-ovulation { background: var(--ovulation-soft); border: 1.5px dashed var(--ovulation); }
 
