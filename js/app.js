@@ -1,19 +1,7 @@
 (function () {
   "use strict";
 
-  // auth 관련 window 이벤트는 js/firebase.js(module script)가 나중에 로드되어
-  // onAuthStateChanged 콜백이 비동기(IndexedDB 접근)로 언제 fire될지 보장되지 않으므로,
-  // DOMContentLoaded를 기다리지 않고 스크립트 최상단에서 최대한 빨리 등록한다.
-  // (app.js는 classic script로 body 맨 끝에 있어 DOM 접근 자체는 이미 안전하다.)
-  window.addEventListener("pt-auth-signed-in", handleAuthSignedIn);
-  window.addEventListener("pt-auth-signed-out", handleAuthSignedOut);
-  window.addEventListener("pt-records-updated", handleRecordsUpdated);
-  window.addEventListener("pt-auth-error", handleAuthError);
-  window.addEventListener("pt-sync-error", handleSyncError);
-
-  // 로그인 여부를 아직 모르는 초기 상태에는 로그인 화면을 보여준다.
-  document.getElementById("authGate").hidden = false;
-
+  var STORAGE_KEY = "periodTracker.records.v1";
   var PROFILE_KEY = "periodTracker.profile.v1";
 
   var SYMPTOM_TAGS = [
@@ -78,6 +66,29 @@
 
   // ---------- storage ----------
 
+  function loadRecords() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return [];
+      var parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed;
+    } catch (e) {
+      console.error("기록을 불러오지 못했습니다.", e);
+      return [];
+    }
+  }
+
+  function saveRecords(records) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+      return true;
+    } catch (e) {
+      console.error("기록을 저장하지 못했습니다.", e);
+      return false;
+    }
+  }
+
   function loadProfile() {
     try {
       var raw = localStorage.getItem(PROFILE_KEY);
@@ -109,99 +120,13 @@
   // ---------- state ----------
 
   var state = {
-    records: [],
+    records: loadRecords(),
     profile: loadProfile(),
     calendarMonth: new Date(todayDate().getFullYear(), todayDate().getMonth(), 1),
-    selectedTags: [],
-    uid: null
+    selectedTags: []
   };
 
   var selectedCellEl = null;
-
-  // ---------- auth / sync ----------
-
-  var syncErrorTimer = null;
-
-  function showAppShell(email) {
-    document.getElementById("authGate").hidden = true;
-    document.getElementById("appShell").hidden = false;
-    document.getElementById("userBar").hidden = false;
-    document.getElementById("userEmail").textContent = email || "";
-    var authErrorEl = document.getElementById("authError");
-    authErrorEl.hidden = true;
-    authErrorEl.textContent = "";
-  }
-
-  function showAuthGate() {
-    document.getElementById("appShell").hidden = true;
-    document.getElementById("authGate").hidden = false;
-    document.getElementById("userBar").hidden = true;
-    document.getElementById("userEmail").textContent = "";
-  }
-
-  function showAuthError(message) {
-    var el = document.getElementById("authError");
-    el.textContent = message || "로그인에 실패했습니다.";
-    el.hidden = false;
-  }
-
-  function showSyncErrorBanner(message) {
-    var el = document.getElementById("syncErrorBanner");
-    el.textContent = message || "동기화에 실패했습니다.";
-    el.hidden = false;
-    if (syncErrorTimer) clearTimeout(syncErrorTimer);
-    syncErrorTimer = setTimeout(function () {
-      el.hidden = true;
-    }, 5000);
-  }
-
-  function handleAuthSignedIn(e) {
-    try {
-      var detail = (e && e.detail) || {};
-      state.uid = detail.uid || null;
-      showAppShell(detail.email);
-    } catch (err) {
-      console.error("로그인 상태 반영 중 오류가 발생했습니다.", err);
-    }
-  }
-
-  function handleAuthSignedOut() {
-    try {
-      state.uid = null;
-      state.records = [];
-      showAuthGate();
-    } catch (err) {
-      console.error("로그아웃 상태 반영 중 오류가 발생했습니다.", err);
-    }
-  }
-
-  function handleRecordsUpdated(e) {
-    try {
-      var detail = (e && e.detail) || {};
-      state.records = Array.isArray(detail.records) ? detail.records : [];
-      renderCalendar();
-    } catch (err) {
-      console.error("기록 동기화 반영 중 오류가 발생했습니다.", err);
-    }
-  }
-
-  function handleAuthError(e) {
-    try {
-      var detail = (e && e.detail) || {};
-      showAuthError(detail.message);
-    } catch (err) {
-      console.error("로그인 오류 반영 중 오류가 발생했습니다.", err);
-    }
-  }
-
-  function handleSyncError(e) {
-    try {
-      var detail = (e && e.detail) || {};
-      showSyncErrorBanner(detail.message);
-    } catch (err) {
-      console.error("동기화 오류 반영 중 오류가 발생했습니다.", err);
-    }
-  }
 
   function sortedByStart(records) {
     return records.slice().sort(function (a, b) {
@@ -736,41 +661,42 @@
       alert("종료일은 시작일보다 빠를 수 없습니다.");
       return;
     }
-    if (!state.uid) {
-      alert("로그인 후 이용해주세요.");
-      return;
+
+    if (id) {
+      var idx = state.records.findIndex(function (r) { return r.id === id; });
+      if (idx !== -1) {
+        state.records[idx] = {
+          id: id,
+          startDate: startDate,
+          endDate: endDate || null,
+          symptoms: state.selectedTags.slice(),
+          memo: memo
+        };
+      }
+    } else {
+      state.records.push({
+        id: uid(),
+        startDate: startDate,
+        endDate: endDate || null,
+        symptoms: state.selectedTags.slice(),
+        memo: memo
+      });
     }
 
-    var recordId = id || uid();
-    var data = {
-      startDate: startDate,
-      endDate: endDate || null,
-      symptoms: state.selectedTags.slice(),
-      memo: memo
-    };
-
-    try {
-      window.PTFirebase.setRecord(state.uid, recordId, data).catch(function () {});
-    } catch (err) {
-      console.error("기록을 저장하지 못했습니다.", err);
-    }
-
+    saveRecords(state.records);
     closeModal("formModal");
+    renderCalendar();
   }
 
   function onDeleteRecord() {
     var id = document.getElementById("recordId").value;
     if (!id) return;
     if (!confirm("이 기록을 삭제할까요?")) return;
-    if (!state.uid) return;
 
-    try {
-      window.PTFirebase.deleteRecord(state.uid, id).catch(function () {});
-    } catch (err) {
-      console.error("기록을 삭제하지 못했습니다.", err);
-    }
-
+    state.records = state.records.filter(function (r) { return r.id !== id; });
+    saveRecords(state.records);
     closeModal("formModal");
+    renderCalendar();
   }
 
   // ---------- modal helpers ----------
@@ -790,34 +716,6 @@
   // ---------- init ----------
 
   function init() {
-    var loginBtn = document.getElementById("googleLoginBtn");
-    if (loginBtn) {
-      loginBtn.addEventListener("click", function () {
-        try {
-          var authErrorEl = document.getElementById("authError");
-          authErrorEl.hidden = true;
-          if (window.PTFirebase && window.PTFirebase.signIn) {
-            window.PTFirebase.signIn();
-          }
-        } catch (err) {
-          console.error("로그인 시도 중 오류가 발생했습니다.", err);
-        }
-      });
-    }
-
-    var logoutBtn = document.getElementById("logoutBtn");
-    if (logoutBtn) {
-      logoutBtn.addEventListener("click", function () {
-        try {
-          if (window.PTFirebase && window.PTFirebase.signOutUser) {
-            window.PTFirebase.signOutUser();
-          }
-        } catch (err) {
-          console.error("로그아웃 시도 중 오류가 발생했습니다.", err);
-        }
-      });
-    }
-
     updateNotifyButtonLabel();
     document.getElementById("enableNotifyBtn").addEventListener("click", requestNotifyPermission);
     document.getElementById("addToCalendarBtn").addEventListener("click", function () {
