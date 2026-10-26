@@ -14,6 +14,9 @@
   var OVULATION_OFFSET_DAYS = 14;
   var BANNER_THRESHOLD_DAYS = 3;
   var ESTIMATED_END_OFFSET_DAYS = 7;
+  // 간격이 평소 주기의 이 배수를 넘으면 사이에 놓친 생리가 있었을 가능성이 높다고 본다
+  var SKIP_GAP_RATIO = 1.5;
+  var MISSED_KEY = "periodTracker.missedCycles.v1";
 
   // 나이대별 평균 생리 주기(일) - 기록이 1건뿐일 때 추정치로 사용
   function defaultCycleLengthForAge(age) {
@@ -113,6 +116,33 @@
     }
   }
 
+  // 예정일 놓침 기록: { recordId, count } - 마지막 기록(recordId) 이후 놓친 주기 수
+  function loadMissed() {
+    try {
+      var raw = localStorage.getItem(MISSED_KEY);
+      if (!raw) return { recordId: null, count: 0 };
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return { recordId: null, count: 0 };
+      return {
+        recordId: typeof parsed.recordId === "string" ? parsed.recordId : null,
+        count: typeof parsed.count === "number" && parsed.count > 0 ? parsed.count : 0
+      };
+    } catch (e) {
+      console.error("놓친 주기 정보를 불러오지 못했습니다.", e);
+      return { recordId: null, count: 0 };
+    }
+  }
+
+  function saveMissed(missed) {
+    try {
+      localStorage.setItem(MISSED_KEY, JSON.stringify(missed));
+      return true;
+    } catch (e) {
+      console.error("놓친 주기 정보를 저장하지 못했습니다.", e);
+      return false;
+    }
+  }
+
   function updateProfileSummary() {
     var el = document.getElementById("profileSummaryValue");
     el.textContent = state.profile.age != null ? "나이 " + state.profile.age + "세" : "나이 미입력";
@@ -123,6 +153,7 @@
   var state = {
     records: loadRecords(),
     profile: loadProfile(),
+    missed: loadMissed(),
     calendarMonth: new Date(todayDate().getFullYear(), todayDate().getMonth(), 1),
     selectedTags: []
   };
@@ -153,7 +184,25 @@
 
   // ---------- prediction ----------
 
-  function computePrediction(records, profile) {
+  // 기록 간격 목록. skippedBefore 가 표시된 기록은 앞 기록과의 사이에 놓친 생리가 있어
+  // 실제 주기가 아니므로 skipped: true 로 표시하고 평균 계산에서 뺀다.
+  function getCycleIntervals(sortedRecords) {
+    var result = [];
+    for (var i = 1; i < sortedRecords.length; i++) {
+      var length = diffDays(parseDate(sortedRecords[i - 1].startDate), parseDate(sortedRecords[i].startDate));
+      if (length > 0) {
+        result.push({ length: length, record: sortedRecords[i], skipped: !!sortedRecords[i].skippedBefore });
+      }
+    }
+    return result;
+  }
+
+  // 마지막 기록 이후 "예정일 놓침"으로 넘긴 주기 수 (다른 기록이 추가되면 자동으로 무효)
+  function missedCountFor(lastRecord) {
+    return state.missed.recordId === lastRecord.id ? state.missed.count : 0;
+  }
+
+  function computePrediction(records, profile, missedCount) {
     if (records.length === 0) {
       return { available: false };
     }
@@ -161,40 +210,15 @@
     var sorted = sortedByStart(records);
     var lastRecord = sorted[sorted.length - 1];
     var lastStart = parseDate(lastRecord.startDate);
-
-    // 기록이 1건뿐이면 나이대별 평균 주기로 추정
-    if (records.length === 1) {
-      var ageCycleLength = defaultCycleLengthForAge(profile ? profile.age : null);
-      var ageNextStart = addDays(lastStart, ageCycleLength);
-      var agePeriodLen = lastRecord.endDate
-        ? diffDays(parseDate(lastRecord.startDate), parseDate(lastRecord.endDate)) + 1
-        : DEFAULT_PERIOD_LENGTH;
-      var ageOvulation = addDays(ageNextStart, -OVULATION_OFFSET_DAYS);
-
-      return {
-        available: true,
-        isEstimate: true,
-        avgCycleLength: ageCycleLength,
-        avgPeriodLength: lastRecord.endDate ? agePeriodLen : null,
-        nextPeriodStart: ageNextStart,
-        nextPeriodEnd: addDays(ageNextStart, agePeriodLen - 1),
-        ovulationDate: ageOvulation
-      };
-    }
-
     var recent = sorted.slice(Math.max(0, sorted.length - MAX_RECORDS_FOR_PREDICTION));
 
+    var intervals = getCycleIntervals(recent);
     var cycleLengths = [];
-    for (var i = 1; i < recent.length; i++) {
-      var d = diffDays(parseDate(recent[i - 1].startDate), parseDate(recent[i].startDate));
-      if (d > 0) cycleLengths.push(d);
-    }
-
-    if (cycleLengths.length === 0) {
-      return { available: false };
-    }
-
-    var avgCycleLength = cycleLengths.reduce(function (a, b) { return a + b; }, 0) / cycleLengths.length;
+    var skippedCount = 0;
+    intervals.forEach(function (it) {
+      if (it.skipped) skippedCount++;
+      else cycleLengths.push(it.length);
+    });
 
     var periodLengths = [];
     recent.forEach(function (r) {
@@ -207,22 +231,44 @@
       ? periodLengths.reduce(function (a, b) { return a + b; }, 0) / periodLengths.length
       : null;
 
+    // 기록이 1건뿐이거나, 건너뛴 주기를 빼면 남는 간격이 없으면 나이대별 평균 주기로 추정
+    var isEstimate = cycleLengths.length === 0;
+    var avgCycleLength = isEstimate
+      ? defaultCycleLengthForAge(profile ? profile.age : null)
+      : cycleLengths.reduce(function (a, b) { return a + b; }, 0) / cycleLengths.length;
+
     var roundedCycle = Math.round(avgCycleLength);
-    var nextPeriodStart = addDays(lastStart, roundedCycle);
+    var missed = missedCount || 0;
+    // 놓친 주기 수만큼 한 주기씩 뒤로 넘긴다
+    var nextPeriodStart = addDays(lastStart, roundedCycle * (missed + 1));
     var ovulationDate = addDays(nextPeriodStart, -OVULATION_OFFSET_DAYS);
     var predictedPeriodLen = avgPeriodLength ? Math.round(avgPeriodLength) : DEFAULT_PERIOD_LENGTH;
     var nextPeriodEnd = addDays(nextPeriodStart, predictedPeriodLen - 1);
 
+    // 예정일이 지나고 평균 주기의 절반이 더 지나면 (= 마지막 기록부터 주기의 1.5배)
+    // 기록을 놓쳤을 수 있으므로 "예정일 놓침" 버튼을 보여준다
+    var overdueFrom = addDays(nextPeriodStart, Math.round(roundedCycle * (SKIP_GAP_RATIO - 1)));
+
     return {
       available: true,
-      isEstimate: false,
+      isEstimate: isEstimate,
       avgCycleLength: avgCycleLength,
       avgPeriodLength: avgPeriodLength,
       nextPeriodStart: nextPeriodStart,
       nextPeriodEnd: nextPeriodEnd,
       ovulationDate: ovulationDate,
-      basedOnCount: recent.length
+      basedOnCount: recent.length,
+      skippedCount: skippedCount,
+      missedCount: missed,
+      isOverdue: todayDate() >= overdueFrom,
+      lastRecord: lastRecord
     };
+  }
+
+  function currentPrediction() {
+    if (state.records.length === 0) return { available: false };
+    var last = sortedByStart(state.records)[state.records.length - 1];
+    return computePrediction(state.records, state.profile, missedCountFor(last));
   }
 
   // ---------- record lookup ----------
@@ -258,6 +304,9 @@
     var banner = document.getElementById("banner");
     var basisEl = document.getElementById("predictionBasis");
     var calendarBtn = document.getElementById("addToCalendarBtn");
+    var missedBtn = document.getElementById("missedCycleBtn");
+    var undoMissedBtn = document.getElementById("undoMissedBtn");
+    var overdueEl = document.getElementById("overdueHint");
 
     if (!prediction.available) {
       valueEl.textContent = "데이터가 더 필요합니다";
@@ -266,17 +315,33 @@
       banner.hidden = true;
       basisEl.hidden = true;
       calendarBtn.hidden = true;
+      missedBtn.hidden = true;
+      undoMissedBtn.hidden = true;
+      overdueEl.hidden = true;
       return;
     }
 
     nextEl.textContent = formatDate(prediction.nextPeriodStart);
     ovulEl.textContent = formatDate(prediction.ovulationDate);
     calendarBtn.hidden = false;
+    missedBtn.hidden = !prediction.isOverdue;
+    undoMissedBtn.hidden = prediction.missedCount === 0;
+    overdueEl.hidden = !prediction.isOverdue;
 
+    var basis;
+    if (prediction.isEstimate && prediction.skippedCount > 0) {
+      basis = "* 건너뛴 주기를 빼면 남는 주기 기록이 없어 나이대 평균(" + prediction.avgCycleLength + "일)으로 추정했어요.";
+    } else if (prediction.isEstimate) {
+      basis = "* 기록 1건 + 나이대 평균(" + prediction.avgCycleLength + "일) 기준 추정치예요. 기록이 쌓이면 실제 평균으로 자동 보정됩니다.";
+    } else {
+      basis = "최근 " + prediction.basedOnCount + "회 기록의 평균 주기(" + Math.round(prediction.avgCycleLength) + "일) 기준이에요.";
+      if (prediction.skippedCount > 0) basis += " (건너뛴 주기 " + prediction.skippedCount + "회 제외)";
+    }
+    if (prediction.missedCount > 0) {
+      basis += " 놓친 예정일 " + prediction.missedCount + "회를 반영해 다음 주기로 넘겼어요.";
+    }
     basisEl.hidden = false;
-    basisEl.textContent = prediction.isEstimate
-      ? "* 기록 1건 + 나이대 평균(" + prediction.avgCycleLength + "일) 기준 추정치예요. 기록이 쌓이면 실제 평균으로 자동 보정됩니다."
-      : "최근 " + prediction.basedOnCount + "회 기록의 평균 주기(" + Math.round(prediction.avgCycleLength) + "일) 기준이에요.";
+    basisEl.textContent = basis;
 
     var dDay = diffDays(todayDate(), prediction.nextPeriodStart);
 
@@ -444,24 +509,21 @@
     if (records.length < 2) return [];
     var sorted = sortedByStart(records);
     var recent = sorted.slice(Math.max(0, sorted.length - MAX_RECORDS_FOR_PREDICTION));
-    var result = [];
-    for (var i = 1; i < recent.length; i++) {
-      var length = diffDays(parseDate(recent[i - 1].startDate), parseDate(recent[i].startDate));
-      if (length > 0) {
-        result.push({ length: length, label: formatShortDate(recent[i].startDate) });
-      }
-    }
-    return result;
+    return getCycleIntervals(recent).map(function (it) {
+      return { length: it.length, label: formatShortDate(it.record.startDate), skipped: it.skipped };
+    });
   }
 
   function renderCycleChart(records) {
     var chartEl = document.getElementById("cycleChart");
     var emptyEl = document.getElementById("cycleChartEmpty");
+    var noteEl = document.getElementById("cycleChartNote");
     var data = getRecentCycleLengths(records);
 
     if (data.length === 0) {
       chartEl.hidden = true;
       emptyEl.hidden = false;
+      noteEl.hidden = true;
       chartEl.innerHTML = "";
       return;
     }
@@ -469,16 +531,20 @@
     emptyEl.hidden = true;
     chartEl.hidden = false;
 
-    var lengths = data.map(function (d) { return d.length; });
-    var min = Math.min.apply(null, lengths);
-    var max = Math.max.apply(null, lengths);
+    // 건너뛴 간격은 실제 주기가 아니라 막대 높이 스케일 계산에서도 뺀다
+    var lengths = data.filter(function (d) { return !d.skipped; }).map(function (d) { return d.length; });
+    var min = lengths.length ? Math.min.apply(null, lengths) : 0;
+    var max = lengths.length ? Math.max.apply(null, lengths) : 0;
     var range = max - min;
+    noteEl.hidden = lengths.length === data.length;
 
     chartEl.innerHTML = data.map(function (d, i) {
-      var heightPct = range === 0 ? 60 : 20 + ((d.length - min) / range) * 80;
-      var isLatest = i === data.length - 1;
-      return '<div class="cycle-bar-col' + (isLatest ? " is-latest" : "") + '">' +
-        '<span class="cycle-bar-value">' + d.length + '</span>' +
+      var heightPct = d.skipped ? 100 : (range === 0 ? 60 : 20 + ((d.length - min) / range) * 80);
+      var classes = "cycle-bar-col";
+      if (d.skipped) classes += " is-skipped";
+      else if (i === data.length - 1) classes += " is-latest";
+      return '<div class="' + classes + '"' + (d.skipped ? ' title="건너뛴 주기 (평균 제외)"' : "") + '>' +
+        '<span class="cycle-bar-value">' + (d.skipped ? "⏭" : "") + d.length + '</span>' +
         '<div class="cycle-bar" style="height:' + heightPct + '%"></div>' +
         '<span class="cycle-bar-label">' + d.label + '</span>' +
         '</div>';
@@ -495,7 +561,7 @@
 
     titleEl.textContent = year + "년 " + (month + 1) + "월";
 
-    var prediction = computePrediction(state.records, state.profile);
+    var prediction = currentPrediction();
     var todayS = todayStr();
 
     var firstDay = new Date(year, month, 1);
@@ -586,6 +652,10 @@
       html += "</div>";
     }
 
+    if (record.skippedBefore) {
+      html += '<div class="detail-tags"><span class="detail-tag skip">⏭ 이전 주기 건너뜀 · 주기 계산에서 제외</span></div>';
+    }
+
     if (record.memo) {
       html += '<div class="detail-memo">' + escapeHtml(record.memo) + "</div>";
     } else {
@@ -640,6 +710,7 @@
     var endEl = document.getElementById("endDate");
     var memoEl = document.getElementById("memo");
     var deleteBtn = document.getElementById("deleteRecordBtn");
+    var skippedEl = document.getElementById("skippedBefore");
 
     if (record) {
       titleEl.textContent = "기록 수정";
@@ -648,6 +719,7 @@
       endEl.value = record.endDate || "";
       memoEl.value = record.memo || "";
       state.selectedTags = (record.symptoms || []).slice();
+      skippedEl.checked = !!record.skippedBefore;
       deleteBtn.hidden = false;
     } else {
       titleEl.textContent = "기록 추가";
@@ -656,12 +728,23 @@
       endEl.value = "";
       memoEl.value = "";
       state.selectedTags = [];
+      // "예정일 놓침"을 눌러둔 상태에서 그 뒤 기록을 추가하면 기본으로 체크해둔다
+      var sorted = sortedByStart(state.records);
+      var last = sorted[sorted.length - 1];
+      skippedEl.checked = !!last && missedCountFor(last) > 0 && startEl.value > last.startDate;
       deleteBtn.hidden = true;
     }
 
     renderTagChips();
     showModal("formModal");
     startEl.focus();
+  }
+
+  // 앞 기록과의 간격이 이 일수 이상이면 사이에 놓친 생리가 있었는지 물어본다
+  function skipGapThreshold(records) {
+    var p = computePrediction(records, state.profile, 0);
+    var reference = p.available ? p.avgCycleLength : defaultCycleLengthForAge(state.profile.age);
+    return Math.round(reference * SKIP_GAP_RATIO);
   }
 
   function onFormSubmit(e) {
@@ -671,6 +754,7 @@
     var startDate = document.getElementById("startDate").value;
     var endDate = document.getElementById("endDate").value;
     var memo = document.getElementById("memo").value.trim();
+    var skippedBefore = document.getElementById("skippedBefore").checked;
 
     if (!startDate) {
       alert("시작일을 선택해주세요.");
@@ -685,6 +769,43 @@
     // 실제 종료일이 있으면 종료 예상일은 필요 없으므로 비워둔다 (실제 값이 항상 우선).
     var estimatedEndDate = endDate ? null : formatDate(addDays(parseDate(startDate), ESTIMATED_END_OFFSET_DAYS));
 
+    var others = sortedByStart(state.records.filter(function (r) { return r.id !== id; }));
+    var prev = null;
+    var next = null;
+    others.forEach(function (r) {
+      if (r.startDate < startDate) prev = r;
+      else if (!next && r.startDate > startDate) next = r;
+    });
+    var original = id ? state.records.find(function (r) { return r.id === id; }) : null;
+    var startChanged = !original || original.startDate !== startDate;
+    var threshold = skipGapThreshold(others);
+
+    // 앞 기록이 없으면 건너뛸 간격 자체가 없다
+    if (!prev) skippedBefore = false;
+
+    if (prev && !skippedBefore && startChanged) {
+      var gap = diffDays(parseDate(prev.startDate), parseDate(startDate));
+      if (gap >= threshold && confirm(
+        "이전 기록(" + prev.startDate + ")과 " + gap + "일 차이가 나요.\n" +
+        "사이에 기록하지 못한 생리가 있었나요?\n\n" +
+        "확인: 놓친 생리 있음 (이 간격은 주기 계산에서 제외)\n" +
+        "취소: 그대로 저장 (주기가 길었던 것)"
+      )) {
+        skippedBefore = true;
+      }
+    }
+
+    // 놓쳤던 생리를 나중에 채워 넣은 경우, 다음 기록의 "놓친 생리 있음" 표시를 풀어준다
+    if (next && next.skippedBefore && startChanged) {
+      var gapToNext = diffDays(parseDate(startDate), parseDate(next.startDate));
+      if (gapToNext < threshold && confirm(
+        "다음 기록(" + next.startDate + ")에 '이전에 놓친 생리 있음' 표시가 있어요.\n" +
+        "지금 기록이 그 놓친 생리라면 표시를 해제할까요?"
+      )) {
+        next.skippedBefore = false;
+      }
+    }
+
     if (id) {
       var idx = state.records.findIndex(function (r) { return r.id === id; });
       if (idx !== -1) {
@@ -694,7 +815,8 @@
           endDate: endDate || null,
           estimatedEndDate: estimatedEndDate,
           symptoms: state.selectedTags.slice(),
-          memo: memo
+          memo: memo,
+          skippedBefore: skippedBefore
         };
       }
     } else {
@@ -704,7 +826,8 @@
         endDate: endDate || null,
         estimatedEndDate: estimatedEndDate,
         symptoms: state.selectedTags.slice(),
-        memo: memo
+        memo: memo,
+        skippedBefore: skippedBefore
       });
     }
 
@@ -744,8 +867,28 @@
     updateNotifyButtonLabel();
     document.getElementById("enableNotifyBtn").addEventListener("click", requestNotifyPermission);
     document.getElementById("addToCalendarBtn").addEventListener("click", function () {
-      var prediction = computePrediction(state.records, state.profile);
+      var prediction = currentPrediction();
       if (prediction.available) downloadICS(prediction);
+    });
+
+    document.getElementById("missedCycleBtn").addEventListener("click", function () {
+      var prediction = currentPrediction();
+      if (!prediction.available) return;
+      if (!confirm(
+        "예정일(" + formatDate(prediction.nextPeriodStart) + ")에 생리를 했는데 기록을 놓쳤나요?\n" +
+        "확인을 누르면 다음 주기 예정일로 넘겨드려요.\n\n" +
+        "주기가 늦어지는 중이라면 취소를 눌러 그대로 두세요."
+      )) return;
+      state.missed = { recordId: prediction.lastRecord.id, count: prediction.missedCount + 1 };
+      saveMissed(state.missed);
+      renderCalendar();
+    });
+    document.getElementById("undoMissedBtn").addEventListener("click", function () {
+      var prediction = currentPrediction();
+      if (!prediction.available || prediction.missedCount === 0) return;
+      state.missed = { recordId: prediction.lastRecord.id, count: prediction.missedCount - 1 };
+      saveMissed(state.missed);
+      renderCalendar();
     });
 
     var profileAgeEl = document.getElementById("profileAge");
