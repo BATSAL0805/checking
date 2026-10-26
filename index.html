@@ -59,7 +59,10 @@
         </div>
       </div>
       <p id="predictionBasis" class="prediction-basis" hidden></p>
+      <p id="overdueHint" class="overdue-hint" hidden>예정일이 한참 지났어요. 그사이 생리를 했는데 기록을 놓쳤다면 '예정일 놓침'을 눌러주세요. 주기가 늦어지는 중이라면 그대로 두면 돼요.</p>
       <div class="reminder-actions">
+        <button id="missedCycleBtn" class="btn-outline warn" type="button" hidden>⏭ 예정일 놓침</button>
+        <button id="undoMissedBtn" class="btn-outline" type="button" hidden>↩ 놓침 취소</button>
         <button id="addToCalendarBtn" class="btn-outline" type="button" hidden>📅 캘린더에 알림 추가</button>
         <button id="enableNotifyBtn" class="btn-outline" type="button">🔔 브라우저 알림 켜기</button>
       </div>
@@ -96,6 +99,7 @@
         </div>
       </div>
       <div id="cycleChart" class="cycle-chart" hidden></div>
+      <p id="cycleChartNote" class="cycle-chart-note" hidden>⏭ 회색 막대는 사이에 놓친 생리가 있던 간격이라 평균에서 제외돼요.</p>
       <p id="cycleChartEmpty" class="cycle-chart-empty">기록이 2건 이상 쌓이면 최근 주기 변화를 그래프로 보여드려요.</p>
     </section>
 
@@ -133,6 +137,11 @@
           <label class="field">
             <span>종료일 <em>(선택, 진행 중이면 비워두세요)</em></span>
             <input type="date" id="endDate">
+          </label>
+
+          <label class="check-field">
+            <input type="checkbox" id="skippedBefore">
+            <span>이 기록 전에 놓친 생리가 있었어요<em>이전 기록과의 간격을 주기 계산에서 빼요</em></span>
           </label>
 
           <div class="field">
